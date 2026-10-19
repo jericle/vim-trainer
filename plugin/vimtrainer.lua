@@ -14,7 +14,7 @@ end, {
   nargs = "*",
   desc = "Vim motion trainer: menu, a level number, next, stats, reset, quit",
   complete = function(arglead)
-    local all = { "menu", "next", "stats", "reset", "quit", "1", "2", "3", "4", "5" }
+    local all = { "menu", "next", "stats", "reset", "quit", "1", "2", "3", "4", "5", "6" }
     return vim.tbl_filter(function(item)
       return item:find(arglead, 1, true) == 1
     end, all)

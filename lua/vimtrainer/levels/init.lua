@@ -37,7 +37,7 @@ local function prepare(level, id)
 end
 
 M.list = {}
-for i, name in ipairs({ "level1", "level2", "level3", "level4", "level5" }) do
+for i, name in ipairs({ "level1", "level2", "level3", "level4", "level5", "level6" }) do
   M.list[i] = prepare(require("vimtrainer.levels." .. name), i)
 end
 
