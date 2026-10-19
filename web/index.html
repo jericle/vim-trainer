@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vim Trainer</title>
+<link rel="stylesheet" href="/static/xterm.css">
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0d1117;
+    --panel: #141a23;
+    --line: #243040;
+    --text: #e6edf3;
+    --dim: #7d8a9c;
+    --good: #4ade80;
+    --warn: #fbbf24;
+    --bad: #f87171;
+    --accent: #7dd3fc;
+    --mono: ui-monospace, "JetBrains Mono", "Fira Code", "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; background: var(--bg); color: var(--text); }
+  body { display: flex; flex-direction: column; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+
+  header { display: flex; align-items: stretch; gap: 16px; padding: 12px 16px 10px; border-bottom: 1px solid var(--line); }
+  .brand { display: flex; flex-direction: column; justify-content: center; font-family: var(--mono); font-size: 13px; letter-spacing: .08em; color: var(--dim); min-width: 92px; }
+  .brand b { color: var(--good); font-size: 22px; letter-spacing: 0; }
+
+  .kpis { flex: 1; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+  .kpi { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px 12px; min-width: 0; }
+  .kpi label { display: block; font-size: 11px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--dim); }
+  .val { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 34px; line-height: 1.15; margin-top: 2px; white-space: nowrap; }
+  .sub { font-size: 12px; color: var(--dim); margin-top: 2px; min-height: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .meter { height: 4px; background: var(--line); border-radius: 2px; margin-top: 8px; overflow: hidden; }
+  .meter i { display: block; height: 100%; width: 0; background: var(--good); border-radius: 2px; transition: width .15s linear, background-color .2s; }
+
+  .good { color: var(--good); } .warn { color: var(--warn); } .bad { color: var(--bad); } .dim { color: var(--dim); }
+  .meter i.good { background: var(--good); } .meter i.warn { background: var(--warn); } .meter i.bad { background: var(--bad); }
+  .kpi.flash { border-color: var(--good); box-shadow: 0 0 0 1px var(--good) inset; }
+
+  .tools { display: flex; align-items: center; gap: 8px; padding: 8px 16px; border-bottom: 1px solid var(--line); font-size: 13px; flex-wrap: wrap; }
+  .tools .sep { width: 1px; align-self: stretch; background: var(--line); margin: 0 6px; }
+  .tools .spacer { flex: 1; }
+  .tools .tag { color: var(--dim); font-size: 12px; letter-spacing: .06em; text-transform: uppercase; margin-right: 2px; }
+  button { font: inherit; font-size: 13px; color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 4px 11px; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button.on { border-color: var(--good); color: var(--good); }
+  #conn { font-size: 12px; color: var(--dim); }
+  #conn::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--dim); margin-right: 6px; }
+  #conn.live::before { background: var(--good); }
+  #conn.dead::before { background: var(--bad); }
+
+  main { flex: 1; min-height: 0; padding: 12px 16px 16px; position: relative; }
+  /* padding lives on .xterm itself: the fit addon subtracts that, but not the padding of its parent */
+  #term { height: 100%; background: #0d1117; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  #term .xterm { height: 100%; padding: 8px 10px; }
+  #term .xterm-viewport { background-color: transparent !important; }
+
+  #overlay { position: absolute; inset: 12px 16px 16px; background: rgba(13, 17, 23, .86); border-radius: 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; font-size: 16px; }
+  #overlay[hidden] { display: none; }
+
+  @media (max-width: 820px) {
+    header { flex-direction: column; }
+    .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .val { font-size: 28px; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><b>vim</b>TRAINER</div>
+  <section class="kpis" aria-label="Session statistics">
+    <div class="kpi" id="k-level">
+      <label>Level</label>
+      <div class="val" id="level-val">–</div>
+      <div class="sub" id="level-sub">pick one below</div>
+    </div>
+    <div class="kpi" id="k-time">
+      <label>Current time</label>
+      <div class="val" id="time-val">0:00.0</div>
+      <div class="sub" id="time-sub">no level running</div>
+      <div class="meter"><i id="time-bar"></i></div>
+    </div>
+    <div class="kpi" id="k-record">
+      <label>Record time</label>
+      <div class="val" id="record-val">–</div>
+      <div class="sub" id="record-sub">no record yet</div>
+    </div>
+    <div class="kpi" id="k-mist">
+      <label>Mistakes</label>
+      <div class="val" id="mist-val">–</div>
+      <div class="sub" id="mist-sub">extra keys beyond par</div>
+      <div class="meter"><i id="mist-bar"></i></div>
+    </div>
+  </section>
+</header>
+
+<nav class="tools" aria-label="Controls">
+  <span class="tag">Level</span>
+  <span id="level-buttons"></span>
+  <button id="btn-menu" title="Open the level menu">Menu</button>
+  <span class="sep"></span>
+  <button id="btn-hint" title="Same as F1">Hint (F1)</button>
+  <button id="btn-restart" title="Same as F2">Restart (F2)</button>
+  <button id="btn-quit" title="Same as F4">Quit level (F4)</button>
+  <span class="spacer"></span>
+  <span id="conn">connecting…</span>
+</nav>
+
+<main>
+  <div id="term" aria-label="Neovim terminal"></div>
+  <div id="overlay" hidden>
+    <div>The Neovim session ended.</div>
+    <button id="btn-again">Start a new session</button>
+  </div>
+</main>
+
+<script src="/static/xterm.js"></script>
+<script src="/static/addon-fit.js"></script>
+<script>
+(() => {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+
+  // ---------------------------------------------------------------- terminal
+  const FitCtor = typeof FitAddon === "function" ? FitAddon : FitAddon.FitAddon;
+  const term = new Terminal({
+    fontFamily: 'ui-monospace, "JetBrains Mono", "Fira Code", "SF Mono", Menlo, Consolas, monospace',
+    fontSize: 15,
+    cursorBlink: true,
+    scrollback: 0,
+    theme: { background: "#0d1117", foreground: "#e6edf3", cursor: "#e6edf3", selectionBackground: "#264f78" },
+  });
+  const fit = new FitCtor();
+  term.loadAddon(fit);
+  term.open($("term"));
+  fit.fit();
+
+  // ---------------------------------------------------------------- connection
+  let ws = null;
+  const send = (obj) => { if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj)); };
+  const sendKeys = (data) => { send({ type: "input", data }); term.focus(); };
+  // <C-\><C-n> first, so the command works from insert mode, the command line, or a pending operator
+  const sendCommand = (cmd) => sendKeys("\x1c\x0e:" + cmd + "\r");
+
+  function setConn(text, cls) { const el = $("conn"); el.textContent = text; el.className = cls || ""; }
+
+  function connect() {
+    $("overlay").hidden = true;
+    setConn("connecting…", "");
+    ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws");
+    ws.binaryType = "arraybuffer";
+    ws.onopen = () => {
+      setConn("connected", "live");
+      fit.fit();
+      send({ type: "resize", cols: term.cols, rows: term.rows });
+      term.reset();
+      term.focus();
+    };
+    ws.onmessage = (ev) => {
+      if (typeof ev.data === "string") {
+        let msg; try { msg = JSON.parse(ev.data); } catch { return; }
+        if (msg.type === "state") onState(msg.state);
+        else if (msg.type === "exit") sessionEnded();
+      } else {
+        term.write(new Uint8Array(ev.data));
+      }
+    };
+    ws.onclose = () => sessionEnded();
+  }
+  function sessionEnded() { setConn("disconnected", "dead"); $("overlay").hidden = false; }
+
+  term.onData((d) => send({ type: "input", data: d }));
+  term.onResize(({ cols, rows }) => send({ type: "resize", cols, rows }));
+  new ResizeObserver(() => fit.fit()).observe($("term"));
+  $("btn-again").onclick = () => { setState({ status: "idle", records: state.records, levels_total: state.levels_total }); connect(); };
+
+  // ---------------------------------------------------------------- KPI bar
+  let state = { status: "idle", records: {}, levels_total: 0 };
+  let stateAt = performance.now();
+  let builtButtons = 0;
+
+  function setState(s) { state = s; stateAt = performance.now(); }
+  function onState(s) { setState(s); buildButtons(); render(); }
+
+  function fmt(sec) {
+    if (sec == null || !isFinite(sec)) return "–";
+    sec = Math.max(0, sec);
+    const m = Math.floor(sec / 60);
+    const s = sec - m * 60;
+    return m + ":" + (s < 10 ? "0" : "") + s.toFixed(1);
+  }
+  const fmtLimit = (sec) => { sec = Math.round(sec); return Math.floor(sec / 60) + ":" + String(sec % 60).padStart(2, "0"); };
+  const stars = (n) => "★".repeat(n) + "☆".repeat(3 - n);
+  const toneByLeft = (left) => (left <= 0.2 ? "bad" : left <= 0.4 ? "warn" : "good");
+
+  function text(id, value, cls) { const el = $(id); el.textContent = value; el.className = el.className.replace(/\b(good|warn|bad|dim)\b/g, "").trim() + (cls ? " " + cls : ""); }
+  function bar(id, frac, tone) { const el = $(id); el.style.width = Math.max(0, Math.min(1, frac)) * 100 + "%"; el.className = tone; }
+
+  function buildButtons() {
+    const n = state.levels_total || 0;
+    if (n === builtButtons) return;
+    builtButtons = n;
+    const box = $("level-buttons");
+    box.textContent = "";
+    for (let i = 1; i <= n; i++) {
+      const b = document.createElement("button");
+      b.textContent = String(i);
+      b.dataset.level = String(i);
+      b.title = "Start level " + i;
+      b.onclick = () => sendCommand("VimTrainer " + i);
+      box.appendChild(b);
+      box.appendChild(document.createTextNode(" "));
+    }
+  }
+
+  function render() {
+    const s = state;
+    const playing = s.status === "playing";
+    const finished = s.status === "finished";
+    const active = playing || finished;
+
+    for (const b of document.querySelectorAll("#level-buttons button")) b.classList.toggle("on", active && Number(b.dataset.level) === s.level);
+
+    // Level
+    if (active) {
+      text("level-val", String(s.level));
+      const done = finished ? "" : "challenge " + s.challenge + " of " + s.challenges;
+      text("level-sub", s.level_name + (done ? " · " + done : ""));
+    } else {
+      text("level-val", "–", "dim");
+      text("level-sub", "pick one below");
+    }
+
+    // Current time
+    const elapsed = playing ? s.elapsed + (performance.now() - stateAt) / 1000 : s.elapsed;
+    if (active) {
+      const limited = s.limit > 0;
+      const left = limited ? 1 - elapsed / s.limit : 1;
+      text("time-val", fmt(elapsed), playing && limited ? toneByLeft(left) : "");
+      if (limited) bar("time-bar", elapsed / s.limit, toneByLeft(left)); else bar("time-bar", 0, "good");
+      if (finished && s.result) {
+        text("time-sub", s.result.passed ? "PASSED  " + stars(s.result.stars)
+          : s.result.fail_reason === "time" ? "TIME'S UP" : s.result.fail_reason === "mistakes" ? "TOO MANY EXTRA KEYS" : "NOT FINISHED",
+          s.result.passed ? "good" : "bad");
+      } else {
+        text("time-sub", limited ? "of " + fmtLimit(s.limit) + " allowed" : "no time limit");
+      }
+    } else {
+      text("time-val", "0:00.0", "dim");
+      text("time-sub", "no level running");
+      bar("time-bar", 0, "good");
+    }
+
+    // Record
+    const rec = active ? s.record : null;
+    const newRecord = finished && s.result && s.result.passed && s.result.improved;
+    $("k-record").classList.toggle("flash", !!newRecord);
+    if (rec != null) {
+      text("record-val", fmt(rec), newRecord ? "good" : "");
+      text("record-sub", newRecord ? "NEW RECORD!" : "best on level " + s.level, newRecord ? "good" : "");
+    } else {
+      text("record-val", "–", "dim");
+      text("record-sub", active ? "no record on this level yet" : "no record yet");
+    }
+
+    // Mistakes
+    if (active) {
+      const frac = s.allowed > 0 ? s.mistakes / s.allowed : 0;
+      const tone = frac >= 1 ? "bad" : frac >= 0.7 ? "warn" : "good";
+      text("mist-val", String(s.mistakes), s.mistakes === 0 ? "good" : tone);
+      text("mist-sub", "extra keys · " + s.allowed + " allowed");
+      bar("mist-bar", frac, tone);
+    } else {
+      text("mist-val", "–", "dim");
+      text("mist-sub", "extra keys beyond par");
+      bar("mist-bar", 0, "good");
+    }
+  }
+  setInterval(render, 100);
+
+  // ---------------------------------------------------------------- buttons
+  $("btn-menu").onclick = () => sendCommand("VimTrainer menu");
+  // F-keys are sent as the escape sequences xterm would send, in case the browser keeps the real keys
+  $("btn-hint").onclick = () => sendKeys("\x1bOP");
+  $("btn-restart").onclick = () => sendKeys("\x1bOQ");
+  $("btn-quit").onclick = () => sendKeys("\x1bOS");
+
+  connect();
+  render();
+})();
+</script>
+</body>
+</html>
